@@ -1,5 +1,6 @@
 import argparse
 import os
+import subprocess
 from datetime import timedelta
 
 import faiss
@@ -18,6 +19,9 @@ def Period_to_str(Period_sec):
 def time_to_Fmt(start, end):
     return start + ' - ' + end
 
+def ffmpeg_subprocess(cmd):
+    p = subprocess.Popen(args=cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
+    _ = p.communicate()
 
 def vcdb_partial_copy_detection(sea_root, feature_root, result_path, param):
     sea_highlight_videos = np.array([os.path.join('HighLight', v) for v in
@@ -44,7 +48,7 @@ def vcdb_partial_copy_detection(sea_root, feature_root, result_path, param):
     if not os.path.isdir(save_path):
         os.makedirs(save_path)
 
-    bar = tqdm(sea_highlight_videos, ncols=150, mininterval=1)
+    bar = tqdm(sea_highlight_videos, ncols=120, mininterval=1, position=0)
     for n, (query) in enumerate(sea_highlight_videos, start=1):
         q_idx = np.where(sea_highlight_videos == query)[0][0]
 
@@ -65,6 +69,7 @@ def vcdb_partial_copy_detection(sea_root, feature_root, result_path, param):
             os.makedirs(save_query_path)
 
         result = []
+        query_bar = tqdm(candidate, ncols=120, mininterval=1, position=1)
         for i, (r_idx, q_t, r_t, sc, feat_num) in enumerate(candidate):
             q_t_start, q_t_end = Period_to_str(q_t.start), Period_to_str(q_t.end)
             r_t_start, r_t_end = Period_to_str(r_t.start), Period_to_str(r_t.end)
@@ -75,12 +80,35 @@ def vcdb_partial_copy_detection(sea_root, feature_root, result_path, param):
             query_v = os.path.join('/mldisk/nfs_shared_/sy/sea_story/videos', sea_highlight_videos[q_idx])
             ref_v = os.path.join('/mldisk/nfs_shared_/sy/sea_story/videos', sea_origin_videos[r_idx])
 
-            os.system(
-                f'ffmpeg -hide_banner -i "{query_v}" -ss {q_t_start} -to {q_t_end} -vcodec copy -acodec copy "{save_query_path}/{i + 1:03d}_query.mp4"')
-            os.system(
-                f'ffmpeg -hide_banner -i "{ref_v}" -ss {r_t_start} -to {r_t_end} -vcodec copy -acodec copy "{save_query_path}/{i + 1:03d}_ref.mp4"')
-            os.system(f'ffmpeg -i "{save_query_path}/{i + 1:03d}_query.mp4" -vf "select=\'eq(pict_type,I)\', scale=320:180, tile=6x6" -frames:v 1 "{save_query_path}/{i + 1:03d}_query_%02d.jpg"')
-            os.system(f'ffmpeg -i "{save_query_path}/{i + 1:03d}_ref.mp4" -vf "select=\'eq(pict_type,I)\', scale=320:180, tile=6x6" -frames:v 1 "{save_query_path}/{i + 1:03d}_ref_%02d.jpg"')
+            cmd1 = ['ffmpeg',
+                    '-i', f'{query_v}', '-ss', q_t_start, '-to', q_t_end,
+                    '-vcodec', 'copy', '-acodec', 'copy',
+                    f'{save_query_path}/{i + 1:03d}_query.mp4']
+
+            cmd2 = ['ffmpeg',
+                    '-i', f'{ref_v}', '-ss', r_t_start, '-to', r_t_end,
+                    '-vcodec', 'copy', '-acodec', 'copy',
+                    f'{save_query_path}/{i + 1:03d}_ref.mp4']
+
+            cmd3 = ['ffmpeg',
+                    '-i', f'{save_query_path}/{i + 1:03d}_query.mp4',
+                    '-vf', "select=\'eq(pict_type,I)\', scale=320:180, tile=6x6",
+                    '-frames:v', '1',
+                    f'{save_query_path}/{i + 1:03d}_query.jpg']
+
+            cmd4 = ['ffmpeg',
+                    '-i', f'{save_query_path}/{i + 1:03d}_ref.mp4',
+                    '-vf', "select=\'eq(pict_type,I)\', scale=320:180, tile=6x6",
+                    '-frames:v', '1',
+                    f'{save_query_path}/{i + 1:03d}_ref.jpg']
+
+            ffmpeg_subprocess(cmd1)
+            ffmpeg_subprocess(cmd2)
+            ffmpeg_subprocess(cmd3)
+            ffmpeg_subprocess(cmd4)
+            query_bar.update()
+
+        query_bar.close()
         result = pd.DataFrame(result)
         result.to_csv(result_csv, index=False)
 
@@ -93,14 +121,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Partial copy detection for Sea Story.")
     parser.add_argument('--sea_root', type=str, default='/mldisk/nfs_shared_/sy/sea_story')
     parser.add_argument('--feature_path', type=str, default='/mldisk/nfs_shared_/sy/sea_story/features_10s')
-    parser.add_argument('--result_path', type=str, default='/workspace/sea_story/results')
+    parser.add_argument('--result_path', type=str, default='/workspace/results')
 
     # TN - parameters
-    parser.add_argument('--topk', type=int, default=150)
+    parser.add_argument('--topk', type=int, default=50)
     parser.add_argument('--feature_intv', type=int, default=10)
     parser.add_argument('--window', type=int, default=1)
-    parser.add_argument('--path_thr', type=int, default=6)
-    parser.add_argument('--score_thr', type=float, default=0.6)
+    parser.add_argument('--path_thr', type=int, default=3)
+    parser.add_argument('--score_thr', type=float, default=0.8)
 
     args = parser.parse_args()
     print(args)
