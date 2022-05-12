@@ -111,7 +111,7 @@ if __name__ == '__main__':
     videos = sorted([os.path.join(c, v) for c in video_cls for v in os.listdir(os.path.join(video_dir, c))])
 
     if os.path.exists(mels_dir):
-        print(f'Audio feature directory {mels_dir} is already exist')
+        print(f'Mel-Spectrogram directory {mels_dir} is already exist')
         exit(1)
 
     for c in video_cls:
