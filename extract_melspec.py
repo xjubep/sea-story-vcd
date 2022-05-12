@@ -99,7 +99,7 @@ class AudioToImage:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Extract Segment Mel-Spectrogram')
     parser.add_argument('--dataset_root', type=str, default='/mldisk/nfs_shared_/sy/sea_story')
-    parser.add_argument('--duration', type=int, default=15)
+    parser.add_argument('--duration', type=int, default=10)
     parser.add_argument('--sampling_rate', type=int, default=22050)
     parser.add_argument('--worker', type=int, default=8)
     args = parser.parse_args()
