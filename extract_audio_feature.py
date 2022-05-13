@@ -84,11 +84,13 @@ if __name__ == '__main__':
     parser.add_argument('--batch', type=int, default=32)
     parser.add_argument('--duration', type=int, default=10)
     parser.add_argument('--worker', type=int, default=8)
+    parser.add_argument('--feature', type=str, default='MelSpectogram', choices=['ConstantQ', 'MelSpectogram'])
+
     args = parser.parse_args()
 
     video_dir = os.path.abspath(os.path.join(args.dataset_root, 'videos'))
-    mels_dir = os.path.abspath(os.path.join(args.dataset_root, f'mels_{args.duration}s'))
-    audio_feat_dir = os.path.abspath(os.path.join(args.dataset_root, f'audio_features_{args.duration}s'))
+    feature_dir = os.path.abspath(os.path.join(args.dataset_root, f'{args.feature}_{args.duration}s'))
+    audio_feat_dir = os.path.abspath(os.path.join(args.dataset_root, f'audio_features_{args.feature}_{args.duration}s'))
 
     video_cls = ['HighLight', 'Origin']
     videos = sorted([os.path.join(c, v) for c in video_cls for v in os.listdir(os.path.join(video_dir, c))])
@@ -108,7 +110,7 @@ if __name__ == '__main__':
 
     pool = joblib.Parallel(args.worker)
     mapper = joblib.delayed(load_mels)
-    tasks = [mapper(os.path.join(args.dataset_root, mels_dir, f'{v}.npy')) for v in videos]
+    tasks = [mapper(os.path.join(args.dataset_root, feature_dir, f'{v}.npy')) for v in videos]
     videos_segment = pool(tqdm(tasks))
 
     videos_sc = []
