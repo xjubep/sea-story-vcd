@@ -3,7 +3,7 @@ import logging
 import sys
 import os
 
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 KST = timezone(timedelta(hours=9))
 

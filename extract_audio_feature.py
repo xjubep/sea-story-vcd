@@ -2,63 +2,67 @@ import argparse
 import os
 import warnings
 
+import torch
+
 warnings.filterwarnings(action='ignore')
 
 from tqdm import tqdm
-import torch
-from torchvision.transforms import transforms as trn
 
+import librosa as lb
+import librosa.display as lbd
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
-from torchvision.datasets.folder import default_loader
-from PIL import Image
-import joblib
-from VCD.utils import DEVICE_STATUS, DEVICE_COUNT
-from VCD import models
+
+import matplotlib.pyplot as plt
 
 
-class MelDataset(Dataset):
-    def __init__(self, mel, transform=None):
-        self.mel = mel
-        self.transform = trn.Compose([
-            trn.Resize((224, 224)),
-            trn.ToTensor(),
-            trn.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
-        if transform is not None:
-            self.transform = transform
+def create_mfcc(segment, config, win_length, to_db=True, norm=True):
+    y, _ = lb.load(segment)
+    s = lb.feature.melspectrogram(y=y, sr=config.sampling_rate, win_length=win_length, hop_length=config.hop_length,
+                                  n_mels=config.n_mels)
 
-        if isinstance(self.transform, trn.Compose):
-            self.load = lambda x: self.transform(default_loader(x))
-        else:
-            raise TypeError('Unsupported image loader')
+    if (config.duration * config.sampling_rate) // config.hop_length + 2 - s.shape[1] > 0:
+        s = np.pad(s, pad_width=(
+            (0, 0), (0, (config.duration * config.sampling_rate) // config.hop_length + 2 - s.shape[1])),
+                   mode='constant')
 
-    def __getitem__(self, idx):
-        img = self.mel[idx]
-        img = np.concatenate((img, img, img), axis=0)
-        img = Image.fromarray(np.uint8(img).transpose(1, 2, 0))
-        img = self.transform(img)
-        return img
-
-    def __len__(self):
-        return len(self.mel)
+    if to_db:
+        s = lb.power_to_db(s, ref=np.max)
+    mfcc = lb.feature.mfcc(S=s, n_mfcc=config.n_mfcc)
+    if norm:
+        mfcc = mfcc / (np.linalg.norm(mfcc, axis=1, keepdims=True) + 1e-6)
+    return mfcc
 
 
-def load_mels(mels_path):
-    full_mels = np.load(mels_path)
-    segment_mels = np.split(full_mels, full_mels.shape[0], axis=0)
-    return np.array(segment_mels)
+def create_3_mfccs(segment, config, mode='avg'):
+    mfccs = [create_mfcc(segment, config, win_length=275 * (2 ** i)) for i in range(3)]
+
+    if mode == 'avg':
+        mfccs = [np.mean(mfcc, axis=1) for mfcc in mfccs]
+
+    mfcc = np.concatenate(mfccs, axis=0)
+    mfcc = mfcc.reshape(-1, mfcc.shape[0])
+    mfcc = mfcc / (np.linalg.norm(mfcc, axis=1, keepdims=True) + 1e-6)
+    return torch.from_numpy(mfcc)
 
 
-@torch.no_grad()
-def extract_audio_features(model, loader, videos, videos_sc, save_to):
-    model.eval()
+def extract_mfccs(segment_root, save_to, config):
+    videos, segments = [], []
+    videos_sc = []
+
+    for video_class in os.listdir(segment_root):
+        for video in os.listdir(os.path.join(segment_root, video_class)):
+            videos.append(os.path.join(video_class, video))
+            segment_list = os.listdir(os.path.join(segment_root, video_class, video))
+            for segment in segment_list:
+                segments.append(os.path.join(segment_root, video_class, video, segment))
+            videos_sc.append(len(segment_list))
+
+    bar = tqdm(segments, ncols=150, unit='segment')
     features = []
-    bar = tqdm(loader, ncols=150, unit='batch')
 
     vidx = 0
-    for idx, imgs in enumerate(bar):
-        feat = model(imgs.cuda()).cpu()
+    for idx, segment in enumerate(bar):
+        feat = create_3_mfccs(segment, config)
         features.append(feat)
 
         features = torch.cat(features)
@@ -77,52 +81,46 @@ def extract_audio_features(model, loader, videos, videos_sc, save_to):
         features = [features]
 
 
+def plot_waveform(segment):
+    plt.figure(figsize=(10, 4))
+    y, sr = lb.load(segment)
+    lbd.waveshow(y, sr=sr)
+    plt.title('Sound Wave')
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_mfcc(spec, win_length, config):
+    plt.figure(figsize=(10, 4))
+    lbd.specshow(spec, x_axis='time', y_axis='mel', sr=config.sampling_rate, win_length=win_length,
+                 hop_length=config.hop_length, fmax=8000)
+    plt.colorbar()
+    plt.title(f'{win_length} MFCC')
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Extract Segment Audio Feature')
-    parser.add_argument('--model', default='Resnet26_ViTS32_in21k')
     parser.add_argument('--dataset_root', type=str, default='/mldisk/nfs_shared_/sy/sea_story')
-    parser.add_argument('--batch', type=int, default=32)
-    parser.add_argument('--duration', type=int, default=10)
-    parser.add_argument('--worker', type=int, default=8)
-    parser.add_argument('--feature', type=str, default='MelSpectogram', choices=['ConstantQ', 'MelSpectogram'])
+    parser.add_argument('--duration', type=int, default=5)
+    parser.add_argument('--sampling_rate', type=int, default=22050)
+    parser.add_argument('--hop_length', type=int, default=220)
+    parser.add_argument('--n_mels', type=int, default=128)
+    parser.add_argument('--n_mfcc', type=int, default=20)
+    parser.add_argument('--feature', type=str, default='MFCC', choices=['MFCC'])
 
     args = parser.parse_args()
 
     video_dir = os.path.abspath(os.path.join(args.dataset_root, 'videos'))
-    feature_dir = os.path.abspath(os.path.join(args.dataset_root, f'{args.feature}_{args.duration}s'))
-    audio_feat_dir = os.path.abspath(os.path.join(args.dataset_root, f'audio_features_{args.feature}_{args.duration}s'))
+    feature_dir = os.path.abspath(os.path.join(args.dataset_root, f'audio_features_{args.feature}_{args.duration}s'))
 
     video_cls = ['HighLight', 'Origin']
     videos = sorted([os.path.join(c, v) for c in video_cls for v in os.listdir(os.path.join(video_dir, c))])
 
-    # Resnet26_ViTS32_in21k
-    model = models.get_frame_model(args.model).cuda()
+    audio_segment_dir = os.path.abspath(os.path.join(args.dataset_root, f'audios_{args.duration}s'))
 
-    # Check device
-    if DEVICE_STATUS and DEVICE_COUNT > 1:
-        model = torch.nn.DataParallel(model)
+    segments = sorted([os.path.join(audio_segment_dir, v, segment) for v in videos for segment in
+                       os.listdir(os.path.join(audio_segment_dir, v))])
 
-    transform = trn.Compose([
-        trn.Resize((224, 224)),
-        trn.ToTensor(),
-        trn.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-
-    pool = joblib.Parallel(args.worker)
-    mapper = joblib.delayed(load_mels)
-    tasks = [mapper(os.path.join(args.dataset_root, feature_dir, f'{v}.npy')) for v in videos]
-    videos_segment = pool(tqdm(tasks))
-
-    videos_sc = []
-    audio_image_store = np.array([])
-    for one_video_segment in videos_segment:
-        if len(audio_image_store) == 0:
-            audio_image_store = one_video_segment
-        else:
-            audio_image_store = np.concatenate((audio_image_store, one_video_segment), axis=0)
-        videos_sc.append(one_video_segment.shape[0])
-
-    loader = DataLoader(MelDataset(audio_image_store, transform=transform), batch_size=args.batch, shuffle=False,
-                        num_workers=args.worker)
-
-    extract_audio_features(model, loader, videos, videos_sc, audio_feat_dir)
+    extract_mfccs(segment_root=audio_segment_dir, save_to=feature_dir, config=args)

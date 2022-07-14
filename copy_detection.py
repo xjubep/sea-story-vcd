@@ -19,9 +19,11 @@ def Period_to_str(Period_sec):
 def time_to_Fmt(start, end):
     return start + ' - ' + end
 
+
 def ffmpeg_subprocess(cmd):
     p = subprocess.Popen(args=cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
     _ = p.communicate()
+
 
 def vcdb_partial_copy_detection(sea_root, feature_root, result_path, param):
     sea_highlight_videos = np.array([os.path.join('HighLight', v) for v in
@@ -39,6 +41,9 @@ def vcdb_partial_copy_detection(sea_root, feature_root, result_path, param):
 
     func_mapping_ori_idx = np.vectorize(lambda x: ori_idx_table[x])
 
+    # faiss.normalize_L2(hi_features)
+    faiss.normalize_L2(ori_features)
+
     ori_index = faiss.IndexFlatIP(ori_features.shape[1])
     ori_index = faiss.index_cpu_to_all_gpus(ori_index)
     ori_index.add(ori_features)
@@ -54,6 +59,7 @@ def vcdb_partial_copy_detection(sea_root, feature_root, result_path, param):
 
         start, end = hi_idx[q_idx]
         q_feat = hi_features[start:end]
+        faiss.normalize_L2(q_feat)
         D, I = ori_index.search(q_feat, param[0])
 
         vidx, fidx = func_mapping_ori_idx(I)
@@ -117,17 +123,19 @@ def vcdb_partial_copy_detection(sea_root, feature_root, result_path, param):
     bar.close()
     return
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Partial copy detection for Sea Story.")
     parser.add_argument('--sea_root', type=str, default='/mldisk/nfs_shared_/sy/sea_story')
-    parser.add_argument('--feature_path', type=str, default='/mldisk/nfs_shared_/sy/sea_story/features_10s')
-    parser.add_argument('--result_path', type=str, default='/workspace/results')
+    parser.add_argument('--feature_path', type=str,
+                        default='/mldisk/nfs_shared_/sy/sea_story/multi_features_MFCC_5s_concat')
+    parser.add_argument('--result_path', type=str, default='/mldisk/nfs_shared_/sy/sea_story/results/MFCC')
 
     # TN - parameters
-    parser.add_argument('--topk', type=int, default=50)
-    parser.add_argument('--feature_intv', type=int, default=10)
-    parser.add_argument('--window', type=int, default=1)
-    parser.add_argument('--path_thr', type=int, default=3)
+    parser.add_argument('--topk', type=int, default=25)
+    parser.add_argument('--feature_intv', type=int, default=5)
+    parser.add_argument('--window', type=int, default=3)
+    parser.add_argument('--path_thr', type=int, default=5)
     parser.add_argument('--score_thr', type=float, default=0.8)
 
     args = parser.parse_args()

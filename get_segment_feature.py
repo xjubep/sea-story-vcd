@@ -11,7 +11,7 @@ FEATURE_EXTENSION = ['pt', 'pth']
 
 
 @torch.no_grad()
-def extract_segment_features(model, count, feature_dir, save_to):
+def extract_segment_features(model, duration, feature_dir, save_to):
     model.eval()
     feature_path = [os.path.join(r, feat) for r, d, f in os.walk(feature_dir) for feat in f if
                     feat.split('.')[-1].lower() in FEATURE_EXTENSION]
@@ -19,10 +19,10 @@ def extract_segment_features(model, count, feature_dir, save_to):
     for p in tqdm(feature_path, ncols=150, unit='video'):
         frame_feature = torch.load(p)
 
-        k = count - frame_feature.shape[0] % count
-        if k != count:
+        k = duration - frame_feature.shape[0] % duration
+        if k != duration:
             frame_feature = torch.cat([frame_feature, frame_feature[-1:, ].repeat((k, 1))])
-        frame_feature = frame_feature.reshape(-1, count, frame_feature.shape[-1])
+        frame_feature = frame_feature.reshape(-1, duration, frame_feature.shape[-1])
         segment_feature = model(frame_feature.cuda()).cpu()
         target = os.path.join(save_to, os.path.relpath(p, feature_dir))
         if not os.path.exists(os.path.dirname(target)):
@@ -35,7 +35,7 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, default='Segment_Tformer_MaxPool')  # #head=1, #layer=1
     parser.add_argument('--frame_feature_path', type=str, default='/mldisk/nfs_shared_/sy/sea_story/features')
     parser.add_argument('--segment_feature_path', type=str, default='/mldisk/nfs_shared_/sy/sea_story/features_5s')
-    parser.add_argument('--count', type=int, default=5)
+    parser.add_argument('--duration', type=int, default=5)
     args = parser.parse_args()
 
     if not os.path.exists(args.frame_feature_path):
@@ -51,4 +51,4 @@ if __name__ == '__main__':
     if DEVICE_STATUS and DEVICE_COUNT > 1:
         model = torch.nn.DataParallel(model)
 
-    extract_segment_features(model, args.count, args.frame_feature_path, args.segment_feature_path)
+    extract_segment_features(model, args.duration, args.frame_feature_path, args.segment_feature_path)
