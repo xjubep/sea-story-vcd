@@ -8,7 +8,7 @@ RUN apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/machi
 
 RUN apt-get update \
     && apt-get -y install \
-    apt-utils git vim openssh-server
+    apt-utils git vim openssh-server ffmpeg
 
 RUN DEBIAN_FRONTEND="noninteractive" apt-get -y install tzdata
 

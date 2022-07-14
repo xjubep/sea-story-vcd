@@ -1,1 +1,15 @@
 pandas
+numpy
+matplotlib
+faiss-gpu
+tqdm
+librosa
+tensorboard
+pymediainfo
+opencv-python
+albumentations
+timm
+pillow
+torchsummary
+torch-optimizer
+sklearn
